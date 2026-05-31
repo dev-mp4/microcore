@@ -1,0 +1,392 @@
+#include <ios>
+#include <iostream>
+#include <array>
+#include <string>
+#include <fstream>
+
+using Byte = char;
+using HalfWord = short;
+using Word = int;
+using DoubleWord = long long;
+
+using UByte = unsigned char;
+using UHalfWord = unsigned short;
+using UWord = unsigned int;
+using UDoubleWord = unsigned long long;
+
+DoubleWord sigext(UDoubleWord value, int from_bits, int to_bits) {
+    if (from_bits == 0 || from_bits > 64 || to_bits == 0 || to_bits > 64)
+        return 0;
+
+    if (from_bits < 64)
+        value &= (1ULL << from_bits) - 1ULL;
+
+    UDoubleWord sign = 1ULL << (from_bits - 1);
+
+    UDoubleWord extended = (value ^ sign) - sign;
+
+    if (to_bits < 64)
+        extended &= (1ULL << to_bits) - 1ULL;
+
+    return (UDoubleWord)extended;
+}
+
+struct Memory {
+    static constexpr UWord MEM_SIZE = 1024 * 32;
+
+    void reset() {
+        memory.fill(0);
+    }
+
+    UByte& operator[](std::size_t idx) {
+        return memory[idx];
+    }
+
+    const UByte& operator[](std::size_t idx) const {
+        return memory[idx];
+    }
+
+    private: std::array<UByte, MEM_SIZE> memory;
+};
+
+struct CPU {
+    UDoubleWord pc = 0;
+
+    std::array<DoubleWord, 32> regs;
+
+    Memory& memory;
+
+    CPU(Memory& memory) : memory(memory) {}
+    ~CPU() {}
+
+    void reset() {
+        pc = 0;
+        regs.fill(0);
+        memory.reset();
+    }
+
+    enum InstructionType {
+        RV64_ALU_RR_32      =   0b00111011,
+        RV64_ALU_RI_32      =   0b00011011,
+        RV64_ALU_RR         =   0b00110011,
+        RV64_ALU_RI         =   0b00010011,
+        RV64_MEM_STORE      =   0b00100011,
+        RV64_MEM_LOAD       =   0b00000011,
+        RV64_COND_BRANCH    =   0b01100011,
+        RV64_JAL            =   0b01101111,
+        RV64_JALR           =   0b01100111,
+        RV64_LUI            =   0b00110111,
+        RV64_AUIPC          =   0b00010111
+    };
+
+    struct Instruction {
+        UByte opcode;
+        UByte rs1;
+        UByte rs2;
+        UByte rd;
+        UByte funct3;
+        UByte funct7;
+        Word  immediate;
+        bool  valid;
+    };
+
+    Instruction decode(UWord raw) {
+        Instruction i;
+        i.opcode = raw & 0x7F;
+
+        switch (i.opcode) {
+            case RV64_ALU_RR_32:
+            case RV64_ALU_RR:
+                i.rd = (raw >> 7) & 0x1F;
+                i.funct3 = (raw >> 12) & 0x07;
+                i.rs1 = (raw >> 15) & 0x1F;
+                i.rs2 = (raw >> 20) & 0x1F;
+                i.funct7 = (raw >> 25) & 0x7F;
+                break;
+            case RV64_ALU_RI_32:
+                i.rd = (raw >> 7) & 0x1F;
+                i.funct3 = (raw >> 12) & 0x07;
+                i.rs1 = (raw >> 15) & 0x1F;
+                if (i.funct3 == 0b001 || i.funct3 == 0b101) {
+                    i.immediate = (raw >> 20) & 0x1F;
+                    i.funct7 = (raw >> 25) & 0x7F;
+                } else {
+                    i.immediate = sigext((raw >> 20) & 0xFFF, 12, 64);
+                }
+                break;
+            case RV64_ALU_RI:
+                i.rd = (raw >> 7) & 0x1F;
+                i.funct3 = (raw >> 12) & 0x07;
+                i.rs1 = (raw >> 15) & 0x1F;
+                if (i.funct3 == 0b001 || i.funct3 == 0b101) {
+                    i.immediate = (raw >> 20) & 0x3F;
+                    i.funct7 = ((raw >> 26) & 0x3F) << 1;
+                } else {
+                    i.immediate = sigext((raw >> 20) & 0xFFF, 12, 64);
+                }
+                break;
+            case RV64_JALR:
+            case RV64_MEM_LOAD:
+                i.rd = (raw >> 7) & 0x1F;
+                i.funct3 = (raw >> 12) & 0x07;
+                i.rs1 = (raw >> 15) & 0x1F;
+                i.immediate = sigext((raw >> 20) & 0xFFF, 12, 64);
+                break;
+            case RV64_MEM_STORE:
+                i.funct3 = (raw >> 12) & 0x07;
+                i.rs1 = (raw >> 15) & 0x1F;
+                i.rs2 = (raw >> 20) & 0x1F;
+                i.immediate = sigext(
+                    ((((raw >> 25) & 0x7F) << 5) | ((raw >> 7) & 0x1F)),
+                     12, 64);
+                break;
+            case RV64_COND_BRANCH:
+                i.funct3 = (raw >> 12) & 0x07;
+                i.rs1 = (raw >> 15) & 0x1F;
+                i.rs2 = (raw >> 20) & 0x1F;
+                i.immediate = sigext(
+                    (((raw >> 8) & 0xF) << 1) | (((raw >> 25) & 0x3F) << 5) | (((raw >> 7) & 0x1) << 11) | (((raw >> 31) & 0x1) << 12),
+                13, 64);
+                break;
+            case RV64_JAL:
+                i.rd = (raw >> 7) & 0x1F;
+                i.immediate = sigext(
+                    (((raw >> 31) & 0x1) << 20)
+                    | (((raw >> 21) & 0x3FF) << 1)
+                    | (((raw >> 20) & 0x1) << 11)
+                    | (((raw >> 12) & 0xFF) << 12),
+                    21, 64
+                );
+                break;
+            case RV64_AUIPC:
+            case RV64_LUI:
+                i.rd = (raw >> 7) & 0x1F;
+                i.immediate = ((raw >> 12) & 0xFFFFF) << 12;
+                break;
+            default:
+                std::cerr << "Invalid opcode: 0x" << std::hex << (UWord) i.opcode << std::dec << std::endl;
+                i.valid = false;
+                return i;
+        }
+        
+        i.valid = true;
+        return i;
+    }
+
+    void tick() {
+        UWord raw = memory[pc] | (memory[pc + 1] << 8) | (memory[pc + 2] << 16) | (memory[pc + 3] << 24);
+
+        Instruction instr = decode(raw);
+        if (!instr.valid) {
+            pc += 4;
+            return;
+        }
+
+        bool advancePc = true;
+
+        switch (instr.opcode) {
+            case RV64_ALU_RR:
+                if (instr.rd != 0) regs[instr.rd] = doALU(regs[instr.rs1], regs[instr.rs2], instr.funct3, instr.funct7);
+                break;
+            case RV64_ALU_RR_32:
+                if (instr.rd != 0) regs[instr.rd] = sigext(doALU(regs[instr.rs1], regs[instr.rs2], instr.funct3, instr.funct7) & 0xFFFFFFFF, 32, 64);
+                break;
+            case RV64_ALU_RI:
+                if (instr.rd != 0) regs[instr.rd] = doALU(regs[instr.rs1], instr.immediate, instr.funct3, instr.funct7);
+                break;
+            case RV64_ALU_RI_32:
+                if (instr.rd != 0) regs[instr.rd] = sigext(doALU(regs[instr.rs1], instr.immediate, instr.funct3, instr.funct7) & 0xFFFFFFFF, 32, 64);
+                break;
+            case RV64_MEM_LOAD:
+                if (instr.rd != 0) {
+                    UDoubleWord address = regs[instr.rs1] + instr.immediate;
+                    switch (instr.funct3) {
+                        case 0b000:
+                            regs[instr.rd] = sigext(memory[address], 8, 64);
+                            break;
+                        case 0b001:
+                            regs[instr.rd] = sigext(
+                                memory[address] | (memory[address + 1] << 8),
+                                16, 64);
+                            break;
+                        case 0b010:
+                            regs[instr.rd] = sigext(
+                                memory[address] | (memory[address + 1] << 8) |
+                                (memory[address + 2] << 16) | (memory[address + 3] << 24),
+                                32, 64);
+                            break;
+                        case 0b011:
+                            regs[instr.rd] = memory[address] | (memory[address + 1] << 8) | 
+                                                                (memory[address + 2] << 16) | (memory[address + 3] << 24) |
+                                                                (memory[address + 4] << 32) | (memory[address + 5] << 40) |
+                                                                (memory[address + 6] << 48) | (memory[address + 7] << 56);
+                            break;
+                        case 0b100:
+                            regs[instr.rd] = memory[address];
+                            break;
+                        case 0b101:
+                            regs[instr.rd] = memory[address] | (memory[address + 1] << 8);
+                            break;
+                        case 0b110:
+                            regs[instr.rd] = memory[address] | (memory[address + 1] << 8) |
+                                (memory[address + 2] << 16) | (memory[address + 3] << 24);
+                            break;
+                    }
+                }
+                break;
+            case RV64_MEM_STORE: {
+                UDoubleWord address = regs[instr.rs1] + instr.immediate;
+                switch (instr.funct3) {
+                    case 0b000:
+                        memory[address] = regs[instr.rs2] & 0xFF;
+                        break;
+                    case 0b001:
+                        memory[address] = regs[instr.rs2] & 0xFF;
+                        memory[address + 1] = (regs[instr.rs2] >> 8) & 0xFF;
+                        break;
+                    case 0b010:
+                        memory[address] = regs[instr.rs2] & 0xFF;
+                        memory[address + 1] = (regs[instr.rs2] >> 8) & 0xFF;
+                        memory[address + 2] = (regs[instr.rs2] >> 16) & 0xFF;
+                        memory[address + 3] = (regs[instr.rs2] >> 24) & 0xFF;
+                        break;
+                    case 0b011:
+                        memory[address] = regs[instr.rs2] & 0xFF;
+                        memory[address + 1] = (regs[instr.rs2] >> 8) & 0xFF;
+                        memory[address + 2] = (regs[instr.rs2] >> 16) & 0xFF;
+                        memory[address + 3] = (regs[instr.rs2] >> 24) & 0xFF;
+                        memory[address + 4] = (regs[instr.rs2] >> 32) & 0xFF;
+                        memory[address + 5] = (regs[instr.rs2] >> 40) & 0xFF;
+                        memory[address + 6] = (regs[instr.rs2] >> 48) & 0xFF;
+                        memory[address + 7] = (regs[instr.rs2] >> 56) & 0xFF;
+                        break;
+                }
+                break;
+            }
+            case RV64_COND_BRANCH:
+                if (checkCondition(regs[instr.rs1], regs[instr.rs2], instr.funct3)) {
+                    pc += instr.immediate;
+                    advancePc = false;
+                }
+                break;
+            case RV64_JAL:
+                regs[instr.rd] = pc + 4;
+                pc += instr.immediate;
+                advancePc = false;
+                break;
+            case RV64_JALR: {
+                UDoubleWord ret = pc + 4;
+                pc = (regs[instr.rs1] + instr.immediate) & ~1;
+                regs[instr.rd] = ret;
+                advancePc = false;
+                break;
+            }
+            case RV64_LUI:
+                regs[instr.rd] = instr.immediate;
+                break;
+            case RV64_AUIPC:
+                regs[instr.rd] = instr.immediate + pc;
+                break;
+            default:
+                break;
+        }
+
+        if (advancePc) pc += 4;
+        else advancePc = true;
+    }
+
+    bool checkCondition(DoubleWord a, DoubleWord b, UByte funct3) {
+        switch (funct3) {
+            case 0b000:
+                return a == b;
+            case 0b001:
+                return a != b;
+            case 0b100:
+                return a < b;
+            case 0b101:
+                return a >= b;
+            case 0b110:
+                return (UDoubleWord) a < (UDoubleWord) b;
+            case 0b111:
+                return (UDoubleWord) a >= (UDoubleWord) b;
+            default:
+                return false;
+        }
+    }
+
+    DoubleWord doALU(DoubleWord a, DoubleWord b, UByte funct3, UByte funct7) {
+        switch (funct3) {
+            case 0b000:
+                return funct7 == 0b0100000 ? a - b : a + b;
+            case 0b001:
+                return (UDoubleWord) a << (b & 0x3F);
+            case 0b010:
+                return a < b ? 1 : 0;
+            case 0b011:
+                return (UDoubleWord) a < (UDoubleWord) b ? 1 : 0;
+            case 0b100:
+                return a ^ b;
+            case 0b101:
+                return funct7 == 0b0100000 ? a >> (b & 0x1F) : (UDoubleWord) a >> (b & 0x1F);
+            case 0b110:
+                return a | b;
+            case 0b111:
+                return a & b;
+            default:
+                return 0;
+        }
+    }
+};
+
+bool loadFirmware(UDoubleWord baseAddress, Memory& memory, std::string filename) {
+    std::ifstream file(filename, std::ios::binary);
+
+    if (!file) {
+        std::cerr << "Cannot open file: " << filename << std::endl;
+        return false;
+    }
+
+    file.seekg(0, std::ios::end);
+    std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    if (baseAddress > Memory::MEM_SIZE) {
+        std::cerr << "Invalid base address!" << std::endl;
+        return false;
+    } else if (size + baseAddress > Memory::MEM_SIZE) {
+        std::cerr << "The firmware is too large! Memory size is " << Memory::MEM_SIZE << std::endl;
+        return false;
+    }
+
+    char byte;
+    UDoubleWord offset = baseAddress;
+    while (file.get(byte)) {
+        unsigned char value = static_cast<unsigned char>(byte);
+        memory[offset++] = byte;
+    }
+
+    return true;
+}
+
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <firmware binary>" << std::endl;
+        return 1;
+    }
+    
+    Memory memory;
+    CPU cpu(memory);
+
+    cpu.reset();
+
+    if (!loadFirmware(0, memory, argv[1])) {
+        return 1;
+    }
+
+    cpu.tick();
+    cpu.tick();
+    cpu.tick();
+    cpu.tick();
+
+    std::cout << cpu.regs[10] << std::endl;
+}
