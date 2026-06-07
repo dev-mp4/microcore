@@ -1,11 +1,15 @@
+#include <algorithm>
 #include <ios>
 #include <iostream>
 #include <array>
 #include "utils.hpp"
 #include "core.hpp"
 
+Memory::Memory(UDoubleWord size) : size(size), memory(size, 0) {}
+Memory::~Memory() {}
+
 void Memory::reset()  {
-    memory.fill(0);
+    std::fill(memory.begin(), memory.end(), 0);
 }
 
 UByte& Memory::operator[](std::size_t idx) {

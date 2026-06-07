@@ -1,10 +1,11 @@
-project('riscv-emu', ['cpp'])
+project('mc', ['cpp'])
 
 executable(
-    'riscv-emu',
+    'mc',
     [
         'src/main.cpp',
         'src/core.cpp',
-        'src/utils.cpp'
+        'src/utils.cpp',
+        'src/args.cpp'
     ]
 )

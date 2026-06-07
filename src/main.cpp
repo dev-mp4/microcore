@@ -1,6 +1,9 @@
 #include "core.hpp"
+#include "src/args.hpp"
+#include <cstring>
 #include <fstream>
 #include <iostream>
+#include <stdexcept>
 
 bool loadFirmware(UDoubleWord baseAddress, Memory& memory, std::string filename) {
     std::ifstream file(filename, std::ios::binary);
@@ -14,11 +17,11 @@ bool loadFirmware(UDoubleWord baseAddress, Memory& memory, std::string filename)
     std::streamsize size = file.tellg();
     file.seekg(0, std::ios::beg);
 
-    if (baseAddress > Memory::MEM_SIZE) {
+    if (baseAddress > memory.size) {
         std::cerr << "Invalid base address!" << std::endl;
         return false;
-    } else if (size + baseAddress > Memory::MEM_SIZE) {
-        std::cerr << "The firmware is too large! Memory size is " << Memory::MEM_SIZE << std::endl;
+    } else if (size + baseAddress > memory.size) {
+        std::cerr << "The firmware is too large!" << std::endl;
         return false;
     }
 
@@ -32,21 +35,47 @@ bool loadFirmware(UDoubleWord baseAddress, Memory& memory, std::string filename)
 }
 
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <firmware binary>" << std::endl;
+    ArgsParser parser(argc, argv);
+
+    Parameters params;
+
+    try {
+        params = parser.parse({1024 * 32, nullptr, 0, false});
+    } catch (std::runtime_error& e) {
+        if (std::strcmp(e.what(), "h") == 0) return 0;
+
+        std::cerr << e.what() << std::endl;
+        return 1;
+    }
+
+    if (params.firmwareFile == nullptr) {
+        std::cerr << "No firmware file specified!" << std::endl;
         return 1;
     }
     
-    Memory memory;
+    Memory memory(params.memorySize);
     CPU cpu(memory);
 
     cpu.reset();
 
-    if (!loadFirmware(0, memory, argv[1])) {
+    if (!loadFirmware(0, memory, params.firmwareFile)) {
         return 1;
     }
 
-    cpu.tick();
+    if (params.ticksCount == 0) {
+        for (;;) {
+           cpu.tick();
+        }
+    } else {
+        for (unsigned long long i = 0; i < params.ticksCount; i++) {
+            cpu.tick();
+        }
+    }
 
-    std::cout << cpu.regs[10] << std::endl;
+    if (params.testMode) {
+        for (int i = 0; i < 31; i++) {
+            std::cout << cpu.regs[i] << std::endl;
+        }
+        std::cout << cpu.pc << std::endl;
+    }
 }

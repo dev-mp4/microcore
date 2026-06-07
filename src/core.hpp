@@ -2,11 +2,13 @@
 #define CORE_HPP
 
 #include "utils.hpp"
+#include <vector>
 #include <array>
 
 class Memory {
 public:
-    static constexpr UWord MEM_SIZE = 1024 * 32;
+    Memory(UDoubleWord size);
+    ~Memory();
 
     void reset();
 
@@ -14,8 +16,10 @@ public:
 
     const UByte& operator[](std::size_t idx) const;
 
+    UDoubleWord size;
+
 private:
-    std::array<UByte, MEM_SIZE> memory;
+    std::vector<UByte> memory;
 };
 
 class CPU {
