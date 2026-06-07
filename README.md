@@ -11,7 +11,7 @@ Another RV64 emulator, written in C++
 
 ## Usage
 
-Compile `main.cpp` with any C++ compiler.
+Compile project with `meson`, executable is located in your build directory, named `mc` (microcore, not Minecraft).
 
 Call `mc --help` to get list of all parameters with their description.
 
