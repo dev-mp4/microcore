@@ -20,6 +20,10 @@ const UByte& Memory::operator[](std::size_t idx) const {
     return memory[idx];
 }
 
+UByte* Memory::getRawPtr() {
+    return memory.data();
+}
+
 CPU::CPU(Memory& memory) : memory(memory) {}
 CPU::~CPU() {}
 
@@ -209,22 +213,22 @@ void CPU::tick() {
             }
             break;
         case RV64_JAL:
-            regs[instr.rd] = pc + 4;
+            if (instr.rd != 0) regs[instr.rd] = pc + 4;
             pc += instr.immediate;
             advancePc = false;
             break;
         case RV64_JALR: {
             UDoubleWord ret = pc + 4;
             pc = (regs[instr.rs1] + instr.immediate) & ~1;
-            regs[instr.rd] = ret;
+            if (instr.rd != 0) regs[instr.rd] = ret;
             advancePc = false;
             break;
         }
         case RV64_LUI:
-            regs[instr.rd] = instr.immediate;
+            if (instr.rd != 0) regs[instr.rd] = instr.immediate;
             break;
         case RV64_AUIPC:
-            regs[instr.rd] = instr.immediate + pc;
+            if (instr.rd != 0) regs[instr.rd] = instr.immediate + pc;
             break;
         default:
             break;

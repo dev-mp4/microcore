@@ -2,12 +2,28 @@
 
 Another RV64 emulator, written in C++
 
-## Planned features
-
-- VirtIO GPU(with OpenGL support)
-- Framebuffer screen
-- Debug UI
-- Boot sequence, similar to MediaTek's one
+## Roadmap
+- [ ] RV64GC
+    - [x] RV64I
+    - [ ] RV64M
+    - [ ] RV64A
+    - [ ] RV64F
+    - [ ] RV64D
+    - [ ] RV64C
+- [ ] Privileges
+    - [ ] CSRs
+    - [ ] Traps and exceptions
+    - [ ] Privilege levels
+    - [ ] MMU
+- [ ] Devices
+    - [ ] Framebuffer
+    - [ ] CLINT
+    - [ ] PLIC
+    - [ ] Keyboard
+- [ ] Boot
+    - [ ] BROM
+    - Boot sequence will be planned later, but will probably be similar to MediaTek's one.
+- [ ] Running Linux kernel and a shell
 
 ## Usage
 
@@ -21,3 +37,7 @@ To run programs, you need to compile them to raw RISC-V RV64I binary and run the
 ## Technical details
 
 The firmware is loaded and executed from 0x0, the default memory size is 32 KB, but you can modify this by adding `-m` or `--memory` argument with memory size in bytes following.
+
+## Testing
+
+Gemini wrote me a couple assemblies, that test instructions and features, I run them after implementing each feature to know that everything behaves correctly.

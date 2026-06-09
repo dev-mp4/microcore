@@ -18,6 +18,8 @@ public:
 
     UDoubleWord size;
 
+    UByte* getRawPtr();
+
 private:
     std::vector<UByte> memory;
 };

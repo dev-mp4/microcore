@@ -8,6 +8,9 @@ struct Parameters {
     const char* firmwareFile;
     unsigned long long ticksCount;
     bool testMode;
+    unsigned long long sigStart;
+    unsigned long long sigEnd;
+    const char* sigFile;
 };
 
 class ArgsParser {
