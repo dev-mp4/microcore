@@ -5,7 +5,7 @@ Another RV64 emulator, written in C++
 ## Roadmap
 - [ ] RV64GC
     - [x] RV64I
-    - [ ] RV64M
+    - [x] RV64M
     - [ ] RV64A
     - [ ] RV64F
     - [ ] RV64D
@@ -41,3 +41,5 @@ The firmware is loaded and executed from 0x0, the default memory size is 32 KB, 
 ## Testing
 
 Gemini wrote me a couple assemblies, that test instructions and features, I run them after implementing each feature to know that everything behaves correctly.
+
+You can compile the tests using command `make -C tests all`, but note that you need `riscv64-unknown-elf` binutils and GCC.

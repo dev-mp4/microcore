@@ -132,13 +132,13 @@ void CPU::tick() {
             if (instr.rd != 0) regs[instr.rd] = doALU(regs[instr.rs1], regs[instr.rs2], instr.funct3, instr.funct7);
             break;
         case RV64_ALU_RR_32:
-            if (instr.rd != 0) regs[instr.rd] = sigext(doALU(regs[instr.rs1], regs[instr.rs2], instr.funct3, instr.funct7) & 0xFFFFFFFF, 32, 64);
+            if (instr.rd != 0) regs[instr.rd] = sigext(doALU(regs[instr.rs1] & 0xFFFFFFFF, regs[instr.rs2] & 0xFFFFFFFF, instr.funct3, instr.funct7) & 0xFFFFFFFF, 32, 64);
             break;
         case RV64_ALU_RI:
             if (instr.rd != 0) regs[instr.rd] = doALU(regs[instr.rs1], instr.immediate, instr.funct3, instr.funct7);
             break;
         case RV64_ALU_RI_32:
-            if (instr.rd != 0) regs[instr.rd] = sigext(doALU(regs[instr.rs1], instr.immediate, instr.funct3, instr.funct7) & 0xFFFFFFFF, 32, 64);
+            if (instr.rd != 0) regs[instr.rd] = sigext(doALU(regs[instr.rs1] & 0xFFFFFFFF, instr.immediate & 0xFFFFFFFF, instr.funct3, instr.funct7) & 0xFFFFFFFF, 32, 64);
             break;
         case RV64_MEM_LOAD:
             if (instr.rd != 0) {
@@ -159,10 +159,15 @@ void CPU::tick() {
                             32, 64);
                         break;
                     case 0b011:
-                        regs[instr.rd] = memory[address] | (memory[address + 1] << 8) | 
-                                                            (memory[address + 2] << 16) | (memory[address + 3] << 24) |
-                                                            (memory[address + 4] << 32) | (memory[address + 5] << 40) |
-                                                            (memory[address + 6] << 48) | (memory[address + 7] << 56);
+                        regs[instr.rd] = (UDoubleWord)memory[address] | 
+                                        ((UDoubleWord)memory[address + 1] << 8)  | 
+                                        ((UDoubleWord)memory[address + 2] << 16) | 
+                                        ((UDoubleWord)memory[address + 3] << 24) |
+                                        ((UDoubleWord)memory[address + 4] << 32) | 
+                                        ((UDoubleWord)memory[address + 5] << 40) |
+                                        ((UDoubleWord)memory[address + 6] << 48) | 
+                                        ((UDoubleWord)memory[address + 7] << 56);
+                        break;
                         break;
                     case 0b100:
                         regs[instr.rd] = memory[address];
@@ -260,21 +265,53 @@ bool CPU::checkCondition(DoubleWord a, DoubleWord b, UByte funct3) {
 DoubleWord CPU::doALU(DoubleWord a, DoubleWord b, UByte funct3, UByte funct7) {
     switch (funct3) {
         case 0b000:
-            return funct7 == 0b0100000 ? a - b : a + b;
+            if (funct7 == 0b00000001) {
+                return a * b; // pretty enough for MUL
+            }
+            else return funct7 == 0b0100000 ? a - b : a + b;
         case 0b001:
-            return (UDoubleWord) a << (b & 0x3F);
+            if (funct7 == 0b00000001) {
+                return ((QuadWord)a * (QuadWord)b) >> 64;
+            }
+            else return (UDoubleWord) a << (b & 0x3F);
         case 0b010:
-            return a < b ? 1 : 0;
+            if (funct7 == 0b00000001) {
+                return ((QuadWord)a * (QuadWord)(UDoubleWord)b) >> 64;
+            }
+            else return a < b ? 1 : 0;
         case 0b011:
-            return (UDoubleWord) a < (UDoubleWord) b ? 1 : 0;
+            if (funct7 == 0b00000001) {
+                return ((UQuadWord)(UDoubleWord)a * (UQuadWord)(UDoubleWord)b) >> 64;
+            }
+            else return (UDoubleWord) a < (UDoubleWord) b ? 1 : 0;
         case 0b100:
-            return a ^ b;
+            if (funct7 == 0b00000001) {
+                if (b == 0) return -1;
+                if (a == LLONG_MIN && b == -1) return LLONG_MIN; // prevent host SIGFPE
+                return a / b;
+            }
+            else return a ^ b;
         case 0b101:
-            return funct7 == 0b0100000 ? a >> (b & 0x1F) : (UDoubleWord) a >> (b & 0x1F);
+            if (funct7 == 0b00000001) {
+                if (b == 0) return ULLONG_MAX;
+                if (a == LLONG_MIN && b == -1) return LLONG_MIN;
+                return (UDoubleWord) a / (UDoubleWord) b;
+            }
+            else return funct7 == 0b0100000 ? a >> (b & 0x1F) : (UDoubleWord) a >> (b & 0x1F);
         case 0b110:
-            return a | b;
+            if (funct7 == 0b00000001) {
+                if (b == 0) return a;
+                if (a == LLONG_MIN && b == -1) return 0;
+                return a % b;
+            }
+            else return a | b;
         case 0b111:
-            return a & b;
+            if (funct7 == 0b00000001) {
+                if (b == 0) return a;
+                if (a == LLONG_MIN && b == -1) return 0;
+                return (UDoubleWord) a % (UDoubleWord) b;
+            }
+            else return a & b;
         default:
             return 0;
     }
