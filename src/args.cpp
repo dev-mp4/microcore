@@ -9,7 +9,7 @@ ArgsParser::~ArgsParser() {}
 Parameters ArgsParser::parse(Parameters defaults) {
     Parameters params = defaults;
 
-    for (int i = 0; i < args.size(); i++) {
+    for (int i = 1; i < args.size(); i++) {
         std::string arg = std::string(args[i]);
 
         if (arg == "-m" || arg == "--memory") {
@@ -81,6 +81,8 @@ Parameters ArgsParser::parse(Parameters defaults) {
             }
 
             params.sigFile = args[++i];
+        } else {
+            throw std::runtime_error("Unknown argument: " + arg);
         }
     }
 
